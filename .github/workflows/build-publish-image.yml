@@ -1,0 +1,124 @@
+# GitHub workflow for building and publishing the Docker image configured by ../../Dockerfile
+#
+# Build the image on any push.  This is useful for checking if the image is building correctly -
+# especially if you don't have the ability to build locally.
+#
+# Publish the image to GHCR for each GitHub release of this project.  Release commits must be from
+# main branch.
+
+name: Build and Publish Docker Image
+
+on:
+  push:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Echo select job context
+        run: |
+          echo "GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "github.event_name=${{ github.event_name }}"
+          echo "github.ref=${{ github.ref }}"
+          echo "github.sha=${{ github.sha }}"
+
+      - name: Echo release tag
+        if: github.event_name == 'release'
+        run: |
+          echo "github.event.release.tag_name=${{ github.event.release.tag_name }}"
+
+      - name: Check out repository
+        # https://github.com/marketplace/actions/checkout
+        uses: actions/checkout@v7
+        with:
+          # Fetch all history to support git merge-base --is-ancestor test below.
+          # A fetch depth of 0 fetches all history.  Hypothetically this could be slow for large
+          # repos, but this repo is not expected to be materially impacted.
+          fetch-depth: 0
+
+      - name: Check 1) is this a release and 2) is it on main
+        id: publish
+        shell: bash
+        run: |
+          SHOULD_PUBLISH=false
+          ON_MAIN=false
+          IS_RELEASE=false
+
+          if [[ "$GITHUB_EVENT_NAME" = 'release' ]]; then
+            echo "This workflow was triggered by a release."
+            IS_RELEASE=true
+          else
+            echo "This workflow was not triggered by a release."
+          fi
+
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "This commit is on main."
+            ON_MAIN=true
+          else
+            echo "This commit is not on main."
+          fi
+
+          echo "ON_MAIN=$ON_MAIN"
+          echo "IS_RELEASE=$IS_RELEASE"
+
+          if [[ "$ON_MAIN" == true && "$IS_RELEASE" == true ]]; then
+            SHOULD_PUBLISH=true
+          fi
+
+          echo "SHOULD_PUBLISH=$SHOULD_PUBLISH"
+          echo "should_publish=$SHOULD_PUBLISH" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        # https://github.com/marketplace/actions/docker-setup-buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Generate image metadata
+        id: meta
+        # https://github.com/marketplace/actions/docker-metadata-action
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # Create images tags corresponding to the release tag and `latest`
+          # They will only be published if should_publish is true, so tags from other workflow
+          # runs are harmlessly created and then never used.
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: Log in to GitHub Container Registry
+        if: steps.publish.outputs.should_publish == 'true'
+        # https://github.com/marketplace/actions/docker-login
+        uses: docker/login-action@v4
+
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image
+        # https://github.com/marketplace/actions/build-and-push-docker-images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          pull: true
+          push: ${{ steps.publish.outputs.should_publish == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
