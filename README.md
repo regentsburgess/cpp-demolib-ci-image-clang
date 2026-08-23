@@ -1,45 +1,16 @@
-<<<<<<< HEAD
-# C++ DemoLib CI Images
+# C++ DemoLib CI Image - Clang
 
-Configuration and building of Docker images to support [C++ DemoLib's](https://github.com/regentsburgess/cpp-demolib) CI testing.
+Configuration and building of a Docker image with a Clang/LLVM toolchain to support [C++ DemoLib's](https://github.com/regentsburgess/cpp-demolib) CI testing.
 
-## Current Images
+The project's workflow builds the image on every push and publishes the image on releases from `main`.
 
-- `ghcr.io/regentsburgess/cpp-demolib-ci-image:gcc-14-r2`
-- `ghcr.io/regentsburgess/cpp-demolib-ci-image:clang-19-r2`
+See the [Releases page](https://github.com/regentsburgess/cpp-demolib-ci-image-clang/releases) for a list of images.
 
 ## Building via GitHub Actions
-
-Images are intended to be built and published via GitHub Actions - it's not required but it's convenient for those that don't have a local Docker setup.
-
-To build the images:
 
 1. Clone this project.
-2. Switch to a non-`main` branch (e.g. `git switch -c new_branch_name`) - pushing directly to `main` is disabled for this repo.
-3. Change the Dockerfiles and `.github/workflows/build-publish-images.yml` as needed.
-   1. The tags (e.g. `gcc-14-r2`) are defined in `build-publish-images.yml`.  
-4. Push the non-main branch.  GitHub should build, but not publish the images - a test run.
-5. Merge the pull request.  Merging to `main` should build and then published the images to to GHCR.
-=======
-# C++ DemoLib CI Image — Clang
-
-Docker image based on Debian containing Clang/LLVM, CMake, and Ninja for [C++ DemoLib's](https://github.com/regentsburgess/cpp-demolib) CI testing.
-
-## Building via GitHub Actions
-
-The workflow at [`.github/workflows/docker.yml`](./github/workflows/build-publish-image.yml) builds the root `Dockerfile` for every push to a branch or tag.
-
-- **Branch pushes:** build and validate the image without publishing it.
-- **Tag pushes:** build the image. A tag is published to `ghcr.io/<repository-owner>/cpp-demolib-ci-image-clang:<tag>` only when its commit is reachable from `main`; tags created solely from a feature branch are never published.
-
-The workflow fetches the full Git history and uses `git merge-base --is-ancestor "$GITHUB_SHA" origin/main` to make this ancestry decision. A tag may therefore publish a historical commit from `main`; it does not need to point to its current tip.
-
-For example, publishing version `v1.0.0`:
-
-```sh
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-The repository's Actions `GITHUB_TOKEN` is used to publish; no additional registry secret is required. Ensure the workflow has permission to write packages (the workflow requests `packages: write`).
->>>>>>> b5164b6 (Pushing to test GH workflow.)
+2. Create a feature branch for your changes. Pushing directly to `main` is disabled for this repo.
+3. Change the image's [Dockerfile](./Dockerfile) as needed.
+4. Push the feature branch. The workflow will build, but not publish, the image.
+5. Create a pull request and merge the feature branch into main.
+6. Create a release. The workflow will build and publish an image with a tag that matches the release tag.
