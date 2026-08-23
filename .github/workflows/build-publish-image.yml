@@ -1,21 +1,26 @@
 # GitHub workflow for building and publishing the Docker image configured by ../../Dockerfile
 #
-# Build the image on any push.  This is useful for checking if the image is building correctly -
-# especially if you don't have the ability to build locally.
+# Build the image on any push to a branch with an open PR.  This is useful for checking if the
+# image is building correctly - especially if you don't have the ability to build locally.
 #
 # Publish the image to GHCR for each GitHub release of this project.  Release commits must be from
 # main branch.
 #
 # There are two downsides to separating the build-test and publish jobs:
-# 1. The jobs could build different images if dependencies change between runs.  Nothing makes the build-only job more-correct / more-authoritative than the build-and-publish job, so differing images are probably a benign outcome.
-# 2. There's duplication of effort in building the image twice.  This is suspected to be small and hopefully ameliorated by using GHA cache.
-# Separating the steps keeps permission and should-the-image-be-published logic clean.
+# 1. The jobs could build different images if dependencies change between runs.  Nothing makes the
+# build-only job more-correct / more-authoritative than the build-and-publish job, so differing
+# images are probably a benign outcome.
+# 2. There's duplication of effort in building the image twice.  This is suspected to be small and
+# hopefully ameliorated by using GHA cache.
+# Separating the steps keeps permission and should-the-image-be-published logic cleaner.
 
 name: Build and Publish Docker Image
 
 on:
   pull_request:
   push:
+    branches:
+      - main
   release:
     types:
       - published
