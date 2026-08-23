@@ -1,0 +1,144 @@
+# GitHub workflow for building and publishing the Docker image configured by ../../Dockerfile
+#
+# Build the image on any push to a branch with an open PR.  This is useful for checking if the
+# image is building correctly - especially if you don't have the ability to build locally.
+#
+# Publish the image to GHCR for each GitHub release of this project.  Release commits must be from
+# main branch.
+#
+# There are two downsides to separating the build-test and publish jobs:
+# 1. The jobs could build different images if dependencies change between runs.  Nothing makes the
+# build-only job more-correct / more-authoritative than the build-and-publish job, so differing
+# images are probably a benign outcome.
+# 2. There's duplication of effort in building the image twice.  This is suspected to be small and
+# hopefully ameliorated by using GHA cache.
+# Separating the steps keeps permission and should-the-image-be-published logic cleaner.
+
+name: Build and Publish Docker Image
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-image:
+    name: Required CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Echo Select Job Context
+        run: |
+          echo "GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "github.event_name=${{ github.event_name }}"
+          echo "github.ref=${{ github.ref }}"
+          echo "github.sha=${{ github.sha }}"
+
+      - name: Check Out Repository
+        # https://github.com/marketplace/actions/checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        # https://github.com/marketplace/actions/docker-setup-buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build Docker Image - No Publishing
+        # https://github.com/marketplace/actions/build-and-push-docker-images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          pull: true
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-and-publish:
+    name: Build and Publish Image
+    if: github.event_name == 'release'
+    needs: build-image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Echo Select Job Context
+        run: |
+          echo "GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "github.event_name=${{ github.event_name }}"
+          echo "github.ref=${{ github.ref }}"
+          echo "github.sha=${{ github.sha }}"
+          echo "github.event.release.tag_name=${{ github.event.release.tag_name }}"
+
+      - name: Check Out Repository
+        # https://github.com/marketplace/actions/checkout
+        uses: actions/checkout@v7
+        with:
+          # Fetch all history to support git merge-base --is-ancestor test below.
+          # A fetch depth of 0 fetches all history. Hypothetically this could be slow for large
+          # repos, but this repo is not expected to be materially impacted.
+          fetch-depth: 0
+
+      - name: Verify Release Commit Is On Main
+        shell: bash
+        run: |
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release commit is on main."
+          else
+            echo "Release commit is not on main."
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        # https://github.com/marketplace/actions/docker-setup-buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Generate Image Metadata
+        id: meta
+        # https://github.com/marketplace/actions/docker-metadata-action
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ github.event.release.tag_name }}
+            type=raw,value=latest
+
+      - name: Log in to GitHub Container Registry
+        # https://github.com/marketplace/actions/docker-login
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Publish Docker Image
+        # https://github.com/marketplace/actions/build-and-push-docker-images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          pull: true
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
